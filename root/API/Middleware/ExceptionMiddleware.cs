@@ -21,7 +21,7 @@ namespace API.Middleware
             try
             {
                 await _next(context);
-                _logger.LogRequest(context, "Requête traitée avec succès");
+                _logger.LogRequest(context, "Request processed successfully");
             }
             catch (Exception ex)
             {

@@ -27,16 +27,13 @@ namespace API.Middleware
             using var transaction = await dbContext.Database.BeginTransactionAsync();
             try
             {
-                _logger.LogTransaction(context.Request.Path, "Début");
+                _logger.LogTransaction(context.Request.Path, "start");
                 
                 await _next(context);
                 
-                if (dbContext.ChangeTracker.HasChanges())
-                {
-                    await dbContext.SaveChangesAsync();
-                    await transaction.CommitAsync();
-                    _logger.LogTransaction(context.Request.Path, "Validée");
-                }
+                await dbContext.SaveChangesAsync();
+                await transaction.CommitAsync();
+                _logger.LogTransaction(context.Request.Path, "finished");
             }
             catch (Exception ex)
             {

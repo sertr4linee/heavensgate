@@ -8,12 +8,14 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace API.Controllers
 {
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
+    [EnableRateLimiting("auth")]
     public class AccountController : ControllerBase
     {
         private readonly RoleManager<IdentityRole> _roleManager;
@@ -159,6 +161,7 @@ namespace API.Controllers
         }
 
         [Authorize(Roles = "Admin")]
+        [EnableRateLimiting("api")]
         [HttpGet("users")]
         public async Task<ActionResult<PagedResponse<UserDetailDto>>> GetUsers([FromQuery] PaginationParams param)
         {

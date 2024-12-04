@@ -9,8 +9,8 @@ using Microsoft.OpenApi.Models;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
 using System.Reflection;
-using API.Services;      // Create a Services folder with service classes
-using API.Repositories;  // Create a Repositories folder with repository classes  
+using API.Services;
+using API.Repositories; 
 using API.Options;       // Create an Options folder with option/configuration classes
 using API.Middleware;    // Create a Middleware folder with middleware classes
 using StackExchange.Redis;
@@ -47,7 +47,6 @@ builder.Services.AddAuthentication(opt => {
 
 builder.Services.AddControllers();
 
-// Configure Swagger/OpenAPI
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -82,8 +81,8 @@ builder.Services.AddSwaggerGen(c =>
         Description = "Documentation détaillée de l'API",
         Contact = new OpenApiContact
         {
-            Name = "Votre Nom",
-            Email = "contact@example.com"
+            Name = "sertr4linee",
+            Email = ":p"
         }
     });
     
@@ -97,12 +96,58 @@ builder.Services.AddSwaggerGen(c =>
 
 builder.Services.AddRateLimiter(options =>
 {
-    options.AddFixedWindowLimiter("fixed", options =>
+    options.AddFixedWindowLimiter("global", options =>
+    {
+        options.PermitLimit = 1000;
+        options.Window = TimeSpan.FromHours(1);
+        options.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        options.QueueLimit = 2;
+    });
+
+    options.AddTokenBucketLimiter("auth", options =>
+    {
+        options.TokenLimit = 10;
+        options.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        options.QueueLimit = 2;
+        options.ReplenishmentPeriod = TimeSpan.FromMinutes(1);
+        options.TokensPerPeriod = 2;
+        options.AutoReplenishment = true;
+    });
+
+    options.AddSlidingWindowLimiter("api", options =>
     {
         options.PermitLimit = 100;
         options.Window = TimeSpan.FromMinutes(1);
+        options.SegmentsPerWindow = 4;
         options.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
         options.QueueLimit = 2;
+    });
+
+    options.OnRejected = async (context, token) =>
+    {
+        context.HttpContext.Response.StatusCode = 429;
+        context.HttpContext.Response.ContentType = "application/json";
+        
+        var response = new 
+        {
+            error = "Too many requests",
+            retryAfter = 60
+        };
+        
+        await context.HttpContext.Response.WriteAsJsonAsync(response, token);
+    };
+
+    options.RejectionStatusCode = 429;
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+    {
+        return RateLimitPartition.GetFixedWindowLimiter(
+            context.User.Identity?.Name ?? context.Request.Headers.Host.ToString(),
+            partition => new FixedWindowRateLimiterOptions
+            {
+                AutoReplenishment = true,
+                PermitLimit = 2000,
+                Window = TimeSpan.FromHours(1)
+            });
     });
 });
 
@@ -129,7 +174,6 @@ builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("JWTSett
 
 var app = builder.Build();
 
-// Logging au démarrage
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
 logger.LogStartup(app.Environment.EnvironmentName);
 
@@ -145,13 +189,15 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseSecurityHeaders();
 app.UseAuthentication();
 app.UseAuthorization();
-app.UseRateLimiter();
-app.MapControllers();
-app.MapHealthChecks("/health");
 
 app.UseMiddleware<DbTransactionMiddleware>();
 app.UseMiddleware<ExceptionMiddleware>();
+
+app.UseRateLimiter();
+app.MapControllers();
+app.MapHealthChecks("/health");
 
 app.Run();
