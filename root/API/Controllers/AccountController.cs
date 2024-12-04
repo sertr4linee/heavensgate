@@ -6,6 +6,7 @@ using API.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
 namespace API.Controllers
@@ -152,6 +153,19 @@ namespace API.Controllers
                 PhoneNumberConfirmed = user.PhoneNumberConfirmed,
                 AccessFailedCount = user.AccessFailedCount
             });
+        }
+
+        [HttpGet("users")]
+        public async Task<ActionResult<IEnumerable<UserDetailDto>>> GetUsers()
+        {
+            var users = await _userManager.Users.Select(user => new UserDetailDto{
+                Id = user.Id,
+                FullName = user.FullName,
+                Email = user.Email,
+                Roles = _userManager.GetRolesAsync(user).Result.ToArray()
+            }).ToListAsync();
+            
+            return Ok(users);
         }
     }
 }
