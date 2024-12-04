@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
+using API.Extensions;
 
 namespace API.Middleware
 {
@@ -20,10 +21,11 @@ namespace API.Middleware
             try
             {
                 await _next(context);
+                _logger.LogRequest(context, "Requête traitée avec succès");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Une erreur s'est produite");
+                _logger.LogError(ex);
                 await HandleExceptionAsync(context, ex);
             }
         }

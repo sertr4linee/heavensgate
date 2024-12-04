@@ -14,6 +14,8 @@ using API.Repositories;  // Create a Repositories folder with repository classes
 using API.Options;       // Create an Options folder with option/configuration classes
 using API.Middleware;    // Create a Middleware folder with middleware classes
 using StackExchange.Redis;
+using API.Extensions;
+using Microsoft.Extensions.Logging;
 
 var builder = WebApplication.CreateBuilder(args);
 var JWTSetting = builder.Configuration.GetSection("JWTSetting");
@@ -126,6 +128,12 @@ builder.Services.AddScoped<ICacheService, RedisCacheService>();
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("JWTSetting"));
 
 var app = builder.Build();
+
+// Logging au démarrage
+var logger = app.Services.GetRequiredService<ILogger<Program>>();
+logger.LogStartup(app.Environment.EnvironmentName);
+
+app.MigrateDatabase();
 
 if (app.Environment.IsDevelopment())
 {
