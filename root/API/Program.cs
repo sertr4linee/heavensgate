@@ -6,14 +6,23 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
+using System.Reflection;
+using API.Services;      // Create a Services folder with service classes
+using API.Repositories;  // Create a Repositories folder with repository classes  
+using API.Options;       // Create an Options folder with option/configuration classes
+using API.Middleware;    // Create a Middleware folder with middleware classes
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 var JWTSetting = builder.Configuration.GetSection("JWTSetting");
+
 // Add services to the container.
 builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlite("Data Source=app.db"));
 builder.Services.AddIdentity<AppUser,IdentityRole>()
-.AddEntityFrameworkStores<AppDbContext>()
-.AddDefaultTokenProviders();
+    .AddEntityFrameworkStores<AppDbContext>()
+    .AddDefaultTokenProviders();
 
 builder.Services.AddAuthentication(opt => {
     opt.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -64,13 +73,57 @@ builder.Services.AddSwaggerGen(c =>
             new List<string>()
         }
     });
-    c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
+    c.SwaggerDoc("v1", new OpenApiInfo
     {
-        Title = "asp .net API",
+        Title = "API Documentation",
         Version = "v1",
-        Description = "Your API Description"
+        Description = "Documentation détaillée de l'API",
+        Contact = new OpenApiContact
+        {
+            Name = "Votre Nom",
+            Email = "contact@example.com"
+        }
+    });
+    
+    var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath))
+    {
+        c.IncludeXmlComments(xmlPath);
+    }
+});
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddFixedWindowLimiter("fixed", options =>
+    {
+        options.PermitLimit = 100;
+        options.Window = TimeSpan.FromMinutes(1);
+        options.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        options.QueueLimit = 2;
     });
 });
+
+builder.Services.AddLogging(logging =>
+{
+    logging.ClearProviders();
+    logging.AddConsole();
+    logging.AddDebug();
+});
+
+builder.Services.AddResponseCaching();
+builder.Services.AddMemoryCache();
+
+builder.Services.AddSingleton<IConnectionMultiplexer>(opt => 
+    ConnectionMultiplexer.Connect(builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379"));
+
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<AppDbContext>();
+
+builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<ICacheService, RedisCacheService>();
+builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("JWTSetting"));
 
 var app = builder.Build();
 
@@ -86,6 +139,11 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 app.MapControllers();
+app.MapHealthChecks("/health");
+
+app.UseMiddleware<DbTransactionMiddleware>();
+app.UseMiddleware<ExceptionMiddleware>();
 
 app.Run();

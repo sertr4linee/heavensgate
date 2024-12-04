@@ -1,0 +1,13 @@
+DbTransactionMiddleware.cs
+
+-ignore les requetes get car elles ne modifient pas la base de données
+-crée une transaction pour les requetes qui modifient la base de données
+-commit la transaction si tout s'est bien passé
+-rollback la transaction en cas d'erreur
+-utilise le loggin pour tracer les operations
+-utilise un cache pour les requetes fréquentes avec ExceptionMiddleware
+
+pourquoi ?
+
+garanti l'integrité des données et la cohérence des transactions, 
+permet de faire du batching de requetes et de limiter les requetes vers la base de données

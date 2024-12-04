@@ -11,6 +11,7 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace API.Controllers
 {
+    [Authorize]
     [Route("api/[controller]")]
     [ApiController]
     public class AccountController : ControllerBase
@@ -27,6 +28,7 @@ namespace API.Controllers
 
         }
 
+        [AllowAnonymous]
         [HttpPost("register")]
         public async Task<ActionResult<string>> Register(RegisterDto registerDto)
         {
@@ -63,6 +65,7 @@ namespace API.Controllers
             });
         }
 
+        [AllowAnonymous]
         [HttpPost("login")]
         public async Task<ActionResult<AuthResponseDto>> Login(LoginDto loginDto)
         {
@@ -145,8 +148,8 @@ namespace API.Controllers
 
             return Ok(new UserDetailDto{
                 Id = user.Id,
-                FullName = user.FullName,
-                Email = user.Email,
+                FullName = user.FullName!,
+                Email = user.Email!,
                 Roles = [..await _userManager.GetRolesAsync(user)],
                 PhoneNumber = user.PhoneNumber,
                 TwoFactorEnabled = user.TwoFactorEnabled,
@@ -155,17 +158,30 @@ namespace API.Controllers
             });
         }
 
+        [Authorize(Roles = "Admin")]
         [HttpGet("users")]
-        public async Task<ActionResult<IEnumerable<UserDetailDto>>> GetUsers()
+        public async Task<ActionResult<PagedResponse<UserDetailDto>>> GetUsers([FromQuery] PaginationParams param)
         {
-            var users = await _userManager.Users.Select(user => new UserDetailDto{
-                Id = user.Id,
-                FullName = user.FullName,
-                Email = user.Email,
-                Roles = _userManager.GetRolesAsync(user).Result.ToArray()
-            }).ToListAsync();
+            var query = _userManager.Users;
+            var total = await query.CountAsync();
+            var users = await query
+                .Skip((param.PageNumber - 1) * param.PageSize)
+                .Take(param.PageSize)
+                .Select(user => new UserDetailDto{
+                    Id = user.Id,
+                    FullName = user.FullName!,
+                    Email = user.Email!,
+                    Roles = _userManager.GetRolesAsync(user).Result.ToArray()
+                }).ToListAsync();
             
-            return Ok(users);
+            return Ok(new PagedResponse<UserDetailDto>(users, param.PageNumber, param.PageSize, total));
         }
+
+        // [HttpPost("refresh-token")]
+        // public async Task<ActionResult<AuthResponseDto>> RefreshToken()
+        // {
+        //     var refreshToken = Request.Cookies["refreshToken"];
+        //     // Logique de validation et renouvellement du token
+        // }
     }
 }
