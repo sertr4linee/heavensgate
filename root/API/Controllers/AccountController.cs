@@ -87,11 +87,9 @@ namespace API.Controllers
             var token = GenerateToken(user);
             var refreshToken = GenerateRefreshToken(user.Id);
             
-            // Sauvegarder le refresh token
             _context.RefreshTokens.Add(refreshToken);
             await _context.SaveChangesAsync();
 
-            // Ajouter le refresh token dans un cookie httpOnly
             Response.Cookies.Append("refreshToken", refreshToken.Token, new CookieOptions
             {
                 HttpOnly = true,
@@ -108,52 +106,75 @@ namespace API.Controllers
         }
 
         [HttpPost("refresh-token")]
+        [EnableRateLimiting("auth")]
         public async Task<ActionResult<AuthResponseDto>> RefreshToken()
         {
-            var refreshToken = Request.Cookies["refreshToken"];
-            if (string.IsNullOrEmpty(refreshToken))
-                return BadRequest("Refresh token not found");
-
-            var storedToken = await _context.RefreshTokens
-                .FirstOrDefaultAsync(rt => rt.Token == refreshToken);
-
-            if (storedToken == null)
-                return BadRequest("Invalid refresh token");
-
-            if (!storedToken.IsActive || storedToken.IsExpired)
+            try
             {
-                _context.RefreshTokens.Remove(storedToken);
+                var refreshToken = Request.Cookies["refreshToken"];
+                if (string.IsNullOrEmpty(refreshToken))
+                    return Unauthorized("No refresh token provided");
+
+                var allowedOrigins = _configuration.GetSection("AllowedOrigins").Get<string[]>();
+                if (!Request.Headers.TryGetValue("Origin", out var origin) || 
+                    allowedOrigins == null || 
+                    !allowedOrigins.Any(o => o == origin.ToString()))
+                {
+                    return Unauthorized("Invalid origin");
+                }
+
+                var storedToken = await _context.RefreshTokens
+                    .Include(rt => rt.User)
+                    .FirstOrDefaultAsync(rt => rt.Token == refreshToken && rt.IsActive);
+
+                if (storedToken == null || storedToken.IsExpired)
+                {
+                    if (storedToken != null)
+                    {
+                        _context.RefreshTokens.Remove(storedToken);
+                        await _context.SaveChangesAsync();
+                    }
+                    Response.Cookies.Delete("refreshToken");
+                    return Unauthorized("Invalid or expired refresh token");
+                }
+
+                var user = storedToken.User;
+                if (user == null || !await _userManager.IsEmailConfirmedAsync(user))
+                {
+                    return Unauthorized("User not found or email not confirmed");
+                }
+
+                var newToken = GenerateToken(user);
+                var newRefreshToken = GenerateRefreshToken(user.Id);
+
+                storedToken.IsActive = false;
+                _context.RefreshTokens.Add(newRefreshToken);
                 await _context.SaveChangesAsync();
-                return BadRequest("Refresh token expired");
+
+                Response.Cookies.Append("refreshToken", newRefreshToken.Token, new CookieOptions
+                {
+                    HttpOnly = true,
+                    Secure = true,
+                    SameSite = SameSiteMode.Strict,
+                    Expires = newRefreshToken.ExpiryDate,
+                    Path = "/api/account/refresh-token"
+                });
+
+                return Ok(new AuthResponseDto
+                {
+                    Token = newToken,
+                    IsSuccess = true,
+                    Message = "Token refreshed successfully"
+                });
             }
-
-            var user = await _userManager.FindByIdAsync(storedToken.UserId);
-            if (user == null)
-                return BadRequest("User not found");
-
-            // Générer un nouveau token et refresh token
-            var newToken = GenerateToken(user);
-            var newRefreshToken = GenerateRefreshToken(user.Id);
-
-            // Invalider l'ancien refresh token
-            storedToken.IsActive = false;
-            _context.RefreshTokens.Add(newRefreshToken);
-            await _context.SaveChangesAsync();
-
-            // Mettre à jour le cookie
-            Response.Cookies.Append("refreshToken", newRefreshToken.Token, new CookieOptions
+            catch (Exception)
             {
-                HttpOnly = true,
-                Secure = true,
-                SameSite = SameSiteMode.Strict,
-                Expires = newRefreshToken.ExpiryDate
-            });
-
-            return Ok(new AuthResponseDto{
-                Token = newToken,
-                IsSuccess = true,
-                Message = "Token refreshed successfully"
-            });
+                return StatusCode(500, new AuthResponseDto 
+                { 
+                    IsSuccess = false,
+                    Message = "An error occurred while refreshing the token"
+                });
+            }
         }
 
         [Authorize]
@@ -263,12 +284,5 @@ namespace API.Controllers
             
             return Ok(new PagedResponse<UserDetailDto>(users, param.PageNumber, param.PageSize, total));
         }
-
-        // [HttpPost("refresh-token")]
-        // public async Task<ActionResult<AuthResponseDto>> RefreshToken()
-        // {
-        //     var refreshToken = Request.Cookies["refreshToken"];
-        //     // Logique de validation et renouvellement du token
-        // }
     }
 }

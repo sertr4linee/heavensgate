@@ -16,6 +16,7 @@ using API.Middleware;    // Create a Middleware folder with middleware classes
 using StackExchange.Redis;
 using API.Extensions;
 using Microsoft.Extensions.Logging;
+using API.BackgroundServices;
 
 var builder = WebApplication.CreateBuilder(args);
 var JWTSetting = builder.Configuration.GetSection("JWTSetting");
@@ -162,7 +163,13 @@ builder.Services.AddResponseCaching();
 builder.Services.AddMemoryCache();
 
 builder.Services.AddSingleton<IConnectionMultiplexer>(opt => 
-    ConnectionMultiplexer.Connect(builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379"));
+{
+    var configuration = ConfigurationOptions.Parse(
+        builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379"
+    );
+    configuration.AbortOnConnectFail = false;
+    return ConnectionMultiplexer.Connect(configuration);
+});
 
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<AppDbContext>();
@@ -171,6 +178,10 @@ builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<ICacheService, RedisCacheService>();
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("JWTSetting"));
+builder.Services.AddScoped<ITokenCleanupService, TokenCleanupService>();
+builder.Services.AddHostedService<TokenCleanupBackgroundService>();
+
+builder.Services.Configure<RateLimitOptions>(builder.Configuration.GetSection("RateLimiting"));
 
 var app = builder.Build();
 

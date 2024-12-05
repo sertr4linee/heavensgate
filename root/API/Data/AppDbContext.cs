@@ -17,8 +17,12 @@ namespace API.Data
         {
             base.OnModelCreating(builder);
             
-            builder.Entity<RefreshToken>()
-                .HasKey(r => r.Token);
+            builder.Entity<RefreshToken>(entity =>
+            {
+                entity.HasKey(r => r.Token);
+                entity.HasIndex(r => r.ExpiryDate);
+                entity.HasIndex(r => r.UserId);
+            });
         }
     }
 }
