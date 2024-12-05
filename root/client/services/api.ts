@@ -1,7 +1,11 @@
-import axios from "axios";
+import axios, { InternalAxiosRequestConfig } from "axios";
 import { IdentityService } from "./identity-service";
 
 const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL;
+
+if (!serverUrl || !serverUrl.startsWith('http')) {
+  console.warn('Warning: Server URL might be misconfigured:', serverUrl);
+}
 
 const api = axios.create({
   baseURL: serverUrl,
@@ -10,46 +14,34 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
     'X-Requested-With': 'XMLHttpRequest'
-  }
+  },
+  xsrfCookieName: 'XSRF-TOKEN',
+  xsrfHeaderName: 'X-XSRF-TOKEN',
 });
 
-// Ajout d'un intercepteur pour la mise en cache
-const cache = new Map();
+const isValidJWT = (token: string) => {
+  return /^[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*$/.test(token);
+};
 
-api.interceptors.request.use((config) => {
-  // Ne pas mettre en cache les requêtes POST/PUT/DELETE
-  if (config.method?.toLowerCase() !== 'get') {
-    return config;
+api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+  const token = localStorage.getItem('authToken');
+  if (token && isValidJWT(token)) {
+    config.headers.Authorization = `Bearer ${token}`;
   }
-
-  const cacheKey = `${config.method}_${config.url}`;
-  const cachedResponse = cache.get(cacheKey);
-
-  if (cachedResponse) {
-    const { data, timestamp } = cachedResponse;
-    // Cache valide pendant 5 minutes
-    if (Date.now() - timestamp < 5 * 60 * 1000) {
-      return Promise.resolve({ ...config, data });
-    }
-    cache.delete(cacheKey);
-  }
-
   return config;
 });
 
 api.interceptors.response.use(
-  (response) => {
-    if (response.config.method?.toLowerCase() === 'get') {
-      const cacheKey = `${response.config.method}_${response.config.url}`;
-      cache.set(cacheKey, {
-        data: response.data,
-        timestamp: Date.now()
-      });
-    }
-    return response;
-  },
+  (response) => response,
   (error) => {
-    console.error(`❌ API Error: ${error.message}`);
+    if (error.response?.status === 401) {
+      localStorage.removeItem('authToken');
+      window.location.href = '/auth/login';
+    }
+    const errorMessage = process.env.NODE_ENV === 'production' 
+      ? 'An error occurred' 
+      : error.message;
+    console.error(`❌ API Error: ${errorMessage}`);
     return Promise.reject(error);
   }
 );
