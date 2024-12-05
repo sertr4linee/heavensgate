@@ -9,6 +9,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.RateLimiting;
+using System.Security.Cryptography;
+using API.Data;
 
 namespace API.Controllers
 {
@@ -21,12 +23,14 @@ namespace API.Controllers
         private readonly RoleManager<IdentityRole> _roleManager;
         private readonly UserManager<AppUser> _userManager;
         private readonly IConfiguration _configuration;
+        private readonly AppDbContext _context;
 
-        public AccountController(RoleManager<IdentityRole> roleManager, UserManager<AppUser> userManager, IConfiguration configuration)
+        public AccountController(RoleManager<IdentityRole> roleManager, UserManager<AppUser> userManager, IConfiguration configuration, AppDbContext context)
         {
             _userManager = userManager;
             _roleManager = roleManager;
             _configuration = configuration;
+            _context = context;
 
         }
 
@@ -71,23 +75,8 @@ namespace API.Controllers
         [HttpPost("login")]
         public async Task<ActionResult<AuthResponseDto>> Login(LoginDto loginDto)
         {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ModelState);
-            }
-
             var user = await _userManager.FindByEmailAsync(loginDto.Email);
-            if (user == null)
-            {
-                return Unauthorized(new AuthResponseDto{
-                    IsSuccess = false,
-                    Message = "Invalid credentials"
-                });
-            }
-
-
-            var result = await _userManager.CheckPasswordAsync(user,loginDto.Password);
-            if (!result)
+            if (user == null || !await _userManager.CheckPasswordAsync(user, loginDto.Password))
             {
                 return Unauthorized(new AuthResponseDto{
                     IsSuccess = false,
@@ -96,12 +85,97 @@ namespace API.Controllers
             }
 
             var token = GenerateToken(user);
+            var refreshToken = GenerateRefreshToken(user.Id);
+            
+            // Sauvegarder le refresh token
+            _context.RefreshTokens.Add(refreshToken);
+            await _context.SaveChangesAsync();
+
+            // Ajouter le refresh token dans un cookie httpOnly
+            Response.Cookies.Append("refreshToken", refreshToken.Token, new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.Strict,
+                Expires = refreshToken.ExpiryDate
+            });
 
             return Ok(new AuthResponseDto{
                 Token = token,
                 IsSuccess = true,
                 Message = "User logged in successfully"
             });
+        }
+
+        [HttpPost("refresh-token")]
+        public async Task<ActionResult<AuthResponseDto>> RefreshToken()
+        {
+            var refreshToken = Request.Cookies["refreshToken"];
+            if (string.IsNullOrEmpty(refreshToken))
+                return BadRequest("Refresh token not found");
+
+            var storedToken = await _context.RefreshTokens
+                .FirstOrDefaultAsync(rt => rt.Token == refreshToken);
+
+            if (storedToken == null)
+                return BadRequest("Invalid refresh token");
+
+            if (!storedToken.IsActive || storedToken.IsExpired)
+            {
+                _context.RefreshTokens.Remove(storedToken);
+                await _context.SaveChangesAsync();
+                return BadRequest("Refresh token expired");
+            }
+
+            var user = await _userManager.FindByIdAsync(storedToken.UserId);
+            if (user == null)
+                return BadRequest("User not found");
+
+            // Générer un nouveau token et refresh token
+            var newToken = GenerateToken(user);
+            var newRefreshToken = GenerateRefreshToken(user.Id);
+
+            // Invalider l'ancien refresh token
+            storedToken.IsActive = false;
+            _context.RefreshTokens.Add(newRefreshToken);
+            await _context.SaveChangesAsync();
+
+            // Mettre à jour le cookie
+            Response.Cookies.Append("refreshToken", newRefreshToken.Token, new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.Strict,
+                Expires = newRefreshToken.ExpiryDate
+            });
+
+            return Ok(new AuthResponseDto{
+                Token = newToken,
+                IsSuccess = true,
+                Message = "Token refreshed successfully"
+            });
+        }
+
+        [Authorize]
+        [HttpPost("logout")]
+        public async Task<IActionResult> Logout()
+        {
+            var refreshToken = Request.Cookies["refreshToken"];
+            if (!string.IsNullOrEmpty(refreshToken))
+            {
+                var storedToken = await _context.RefreshTokens
+                    .FirstOrDefaultAsync(rt => rt.Token == refreshToken);
+                
+                if (storedToken != null)
+                {
+                    storedToken.IsActive = false;
+                    await _context.SaveChangesAsync();
+                }
+
+                Response.Cookies.Delete("refreshToken");
+            }
+
+            return Ok(new { message = "Logged out successfully" });
         }
 
         private string GenerateToken(AppUser user)
@@ -132,6 +206,16 @@ namespace API.Controllers
 
             var token = tokenHandler.CreateToken(tokenDescriptor);
             return tokenHandler.WriteToken(token);
+        }
+
+        private RefreshToken GenerateRefreshToken(string userId)
+        {
+            return new RefreshToken
+            {
+                Token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64)),
+                ExpiryDate = DateTime.UtcNow.AddDays(7),
+                UserId = userId
+            };
         }
 
         [Authorize]
