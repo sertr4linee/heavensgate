@@ -1,54 +1,59 @@
-import { AxiosInstance } from 'axios';
-import { User, LoginCredentials, RegisterCredentials } from './interfaces/user';
-import { AuthResponse } from './interfaces/auth';
+import api from './api';
+import { User } from './interfaces/user';
 
-export class IdentityService {
-  private api: AxiosInstance;
+interface AuthResponse {
+    token: string;
+    refreshToken?: string;
+    isSuccess: boolean;
+    message: string;
+}
 
-  constructor(api: AxiosInstance) {
-    this.api = api;
-  }
-
-  /**
-   * log an user
-   */
-  async login(credentials: LoginCredentials): Promise<AuthResponse> {
-    const { data } = await this.api.post<AuthResponse>('/api/Account/login', credentials);
-    return data;
-  }
-
-  /**
-   * register an user
-   */
-  async register(credentials: RegisterCredentials) {
-    const { data } = await this.api.post<User>('/api/Account/register', credentials);
-    return data;
-  }
-
-  /**
-   * disconnect an user
-   */
-  async logout() {
-    await this.api.post('/api/Account/logout');
-  }
-
-  /**
-   * get the current user
-   */
-  async getCurrentUser() {
-    try {
-      const { data } = await this.api.get<User>('/api/Account/detail');
-      return data;
-    } catch (error) {
-      return null;
+class IdentityService {
+    async register(data: { fullName: string; email: string; password: string }) {
+        return api.post('/api/Account/register', data);
     }
-  }
 
-  /**
-   * check if the user is authenticated
-   */
-  async isAuthenticated(): Promise<boolean> {
-    const user = await this.getCurrentUser();
-    return user !== null;
-  }
-} 
+    async login(data: { email: string; password: string }) {
+        const { data: response } = await api.post<AuthResponse>('/api/Account/login', data);
+        if (response.token) {
+            localStorage.setItem('authToken', response.token);
+            if (response.refreshToken) {
+                localStorage.setItem('refreshToken', response.refreshToken);
+            }
+        }
+        return response;
+    }
+
+    async getCurrentUser() {
+        try {
+            const { data } = await api.get<User>('/api/Account/detail');
+            return data;
+        } catch (error) {
+            await this.handleAuthError(error);
+            return null;
+        }
+    }
+
+    public async handleAuthError(error: any) {
+        if (error?.response?.status === 401) {
+            const refreshToken = localStorage.getItem('refreshToken');
+            if (refreshToken) {
+                try {
+                    const { data } = await api.post<AuthResponse>('/api/Account/refresh-token', { refreshToken });
+                    localStorage.setItem('authToken', data.token);
+                    return;
+                } catch {
+                    this.logout();
+                }
+            }
+            this.logout();
+        }
+    }
+
+    async logout() {
+        await api.post('/api/Account/logout');
+        localStorage.removeItem('authToken');
+    }
+}
+
+export default new IdentityService(); 

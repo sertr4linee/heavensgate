@@ -3,11 +3,10 @@
 import { LoginFormData, loginSchema } from '@/types/loginTypes';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { identityService } from '@/services/api';
+import identityService from '@/services/identity-service';
 import { useForm } from 'react-hook-form';
 import { useState } from 'react';
 import Link from 'next/link';
-
 
 export default function LoginPage() {
   const router = useRouter();
@@ -91,7 +90,7 @@ export default function LoginPage() {
               <input
                 {...register('email')}
                 type="email"
-                autoComplete="email"
+                autoComplete="username email"
                 className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
                 placeholder="Email address"
               />

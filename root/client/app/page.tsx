@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { identityService } from '@/services/api';
-import Link from 'next/link';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import identityService from '@/services/identity-service';
 
 export default function Home() {
   const [fullName, setFullName] = useState<string | null>(null);
@@ -14,8 +14,7 @@ export default function Home() {
     const checkAuth = async () => {
       try {
         const token = localStorage.getItem('authToken');
-        if (!token || !/^[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*$/.test(token)) {
-          localStorage.removeItem('authToken');
+        if (!token) {
           setIsLoading(false);
           return;
         }
@@ -23,20 +22,16 @@ export default function Home() {
         const user = await identityService.getCurrentUser();
         if (user) {
           setFullName(user.fullName.replace(/[<>]/g, ''));
-        } else {
-          localStorage.removeItem('authToken');
         }
       } catch (error) {
         console.error('Error fetching user:', error);
-        localStorage.removeItem('authToken');
-        router.replace('/auth/login');
       } finally {
         setIsLoading(false);
       }
     };
 
     checkAuth();
-  }, [router]);
+  }, []);
 
   if (isLoading) {
     return (
