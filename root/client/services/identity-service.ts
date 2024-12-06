@@ -1,5 +1,6 @@
 import api from './api';
 import { User } from './interfaces/user';
+import { logger } from './logger';
 
 interface AuthResponse {
     token: string;
@@ -10,18 +11,31 @@ interface AuthResponse {
 
 class IdentityService {
     async register(data: { fullName: string; email: string; password: string }) {
-        return api.post('/api/Account/register', data);
+        try {
+            const response = await api.post('/api/Account/register', data);
+            logger.debug('User registered', { email: data.email });
+            return response;
+        } catch (error) {
+            logger.error('Registration failed', error);
+            throw error;
+        }
     }
 
     async login(data: { email: string; password: string }) {
-        const { data: response } = await api.post<AuthResponse>('/api/Account/login', data);
-        if (response.token) {
-            localStorage.setItem('authToken', response.token);
-            if (response.refreshToken) {
-                localStorage.setItem('refreshToken', response.refreshToken);
+        try {
+            const { data: response } = await api.post<AuthResponse>('/api/Account/login', data);
+            if (response.token) {
+                localStorage.setItem('authToken', response.token);
+                if (response.refreshToken) {
+                    localStorage.setItem('refreshToken', response.refreshToken);
+                }
+                logger.debug('User logged in', { email: data.email });
             }
+            return response;
+        } catch (error) {
+            logger.error('Login failed', error);
+            throw error;
         }
-        return response;
     }
 
     async getCurrentUser() {
@@ -50,9 +64,19 @@ class IdentityService {
         }
     }
 
-    async logout() {
-        await api.post('/api/Account/logout');
-        localStorage.removeItem('authToken');
+    async logout(router?: any) {
+        try {
+            await api.post('/api/Account/logout');
+            logger.debug('User logged out');
+        } catch (error) {
+            logger.error('Logout failed', error);
+        } finally {
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('refreshToken');
+            if (router) {
+                router.refresh();
+            }
+        }
     }
 }
 

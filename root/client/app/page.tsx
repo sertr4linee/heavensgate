@@ -1,9 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { RadarChartComponent } from '@/components/charts/radarchart';
+import { AreaChartComponent } from '@/components/charts/areachart';
+import { LineChartComponent } from '@/components/charts/barchart';
+import InteractiveBarChart from '@/components/charts/linechart';
+import { useEffect, useState } from 'react';
 import identityService from '@/services/identity-service';
+import { useRouter } from 'next/navigation';
 
 export default function Home() {
   const [fullName, setFullName] = useState<string | null>(null);
@@ -11,53 +14,69 @@ export default function Home() {
   const router = useRouter();
 
   useEffect(() => {
+    let mounted = true;
+
     const checkAuth = async () => {
       try {
         const token = localStorage.getItem('authToken');
         if (!token) {
-          setIsLoading(false);
+          if (mounted) setIsLoading(false);
           return;
         }
 
         const user = await identityService.getCurrentUser();
-        if (user) {
-          setFullName(user.fullName.replace(/[<>]/g, ''));
+        if (mounted && user) {
+          setFullName(user.fullName);
         }
       } catch (error) {
         console.error('Error fetching user:', error);
       } finally {
-        setIsLoading(false);
+        if (mounted) setIsLoading(false);
       }
     };
 
     checkAuth();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
+  const handleLogout = async () => {
+    await identityService.logout();
+    router.push('/auth/login');
+  };
+
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-gray-500">Chargement...</div>
-      </div>
-    );
+    return null;
   }
 
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
+    <main className="flex min-h-screen flex-col items-center justify-center p-24 bg-indigo-50">
+      <h1 className="mb-8 text-4xl font-bold text-indigo-900">
         {fullName ? (
-          <h1 className="text-3xl font-bold">Welcome {fullName}!</h1>
+          <span>Welcome, {fullName}</span>
         ) : (
-          <div className="text-center">
-            <h1 className="text-3xl font-bold mb-4">Inscrivez-vous</h1>
-            <Link 
-              href="/auth/register"
-              className="text-blue-600 hover:text-blue-800 underline"
-            >
-              Créer un compte
-            </Link>
-          </div>
+          'Join us'
         )}
-      </main>
-    </div>
+      </h1>
+      <div className="w-full max-w-7xl space-y-8">
+        <div className="p-6 bg-white rounded-lg shadow-lg">
+          <InteractiveBarChart />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          <div className="p-6 bg-white rounded-lg shadow-lg">
+            <RadarChartComponent />
+          </div>
+          <div className="p-6 bg-white rounded-lg shadow-lg">
+            <LineChartComponent />
+          </div>
+          <div className="p-6 bg-white rounded-lg shadow-lg">
+            <AreaChartComponent />
+          </div>
+        </div>
+      </div>
+    </main>
   );
 }
+
